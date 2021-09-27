@@ -1,7 +1,7 @@
 import inspect
 import sqlite3
 
-from typing import List, Dict
+from typing import List
 
 
 #
@@ -127,17 +127,21 @@ class OrmModel:
     def __init__(self, db_file_name=None, db_table_name=None):
         self.db_file_name = (type(self).__name__ + '.db') if db_file_name is None else db_file_name
         self.db_table_name = type(self).__name__ if db_table_name is None else db_table_name
-        self.db_fields = self.__get_all_table_fields()
+        self.db_fields = self._get_all_table_fields()
         self.db_field_names = [name for (name, _) in self.db_fields]
-        self.db_conn = self.__create_connection()
+        self.db_conn = self._create_connection()
 
-        self.__create_table()
+        self._create_table()
 
     def __del__(self):
         if self.db_conn is not None:
             self.db_conn.close()
 
     @check_connected
+    def send_request(self, request):
+        self.db_conn.execute(request)
+        self.db_conn.commit()
+
     def add_entry(self, *args):
         # TODO: Можно реализовать эту функцию иначе для более простого использования по типу:
         # model.add_entry(pk=1, some_field_1='test', ...) – используя **kwargs
@@ -153,7 +157,7 @@ class OrmModel:
                 raise AttributeError()
 
         start_idx = 1 if has_auto_id_field else 0
-        if self.__type_matching_test(data=list(args), start_idx=start_idx):
+        if self._type_matching_test(data=list(args), start_idx=start_idx):
             raise TypeError()
 
         sql_values = ''
@@ -171,8 +175,7 @@ class OrmModel:
             VALUES ({});
             """.format(self.db_table_name, ','.join(self.db_field_names), sql_values)
 
-        self.db_conn.execute(sql_add_request)
-        self.db_conn.commit()
+        self.send_request(sql_add_request)
 
     @check_connected
     def objects(self):
@@ -182,14 +185,14 @@ class OrmModel:
             """.format(self.db_table_name)
         return ListOrm(self.db_field_names, self.db_conn.execute(sql_request).fetchall())
 
-    def __type_matching_test(self, data: [List, Dict], start_idx: int = 0):
+    def _type_matching_test(self, data: List, start_idx: int = 0):
         if isinstance(data, list):
             for idx, d in enumerate(data):
                 if type(d) != self.db_fields[idx + start_idx][1].get_stored_type():
                     return False
         return True
 
-    def __create_connection(self):
+    def _create_connection(self):
         """
         Создает соединение с базой данных.
 
@@ -202,8 +205,7 @@ class OrmModel:
         except (Exception,):
             return None
 
-    @check_connected
-    def __create_table(self):
+    def _create_table(self):
         """
         Создает таблицу вместе со всеми полями класса
         """
@@ -227,10 +229,9 @@ class OrmModel:
             CREATE TABLE IF NOT EXISTS {} ({});
             """.format(self.db_table_name, ','.join(sql_fields))
 
-        self.db_conn.execute(sql_create_request)
-        self.db_conn.commit()
+        self.send_request(sql_create_request)
 
-    def __get_all_table_fields(self):
+    def _get_all_table_fields(self):
         """
         Собирает массив атрибутов данного класса
 

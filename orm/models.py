@@ -1,36 +1,88 @@
-import inspect
+import os.path
 import sqlite3
 
-from typing import List
+
+class BaseManager(list):
+    def __init__(self, a_model_class, a_connection):
+        self._model_class = a_model_class
+        self._connection = a_connection
+        self._table_name = self._model_class.__name__
+
+    def filter(self, **kwargs):
+        where_str = ''
+        for field_name, field_value in kwargs.items():
+            if field_name not in self._model_class.fields or \
+                    type(field_value) != self._model_class.fields[field_name].get_type():
+                raise ValueError
+            else:
+                where_str += '{}={}'
 
 
-#
-# ORM FIELDS
-#
+class MetaModel(type):
+    __dbname__ = 'Database.db'
 
-class OrmField:
-    # Счетчик – общее количество наследований
-    __number_of_inheritances = 0
+    manager_class = BaseManager
 
-    def __init__(self, primary_key=False, not_null=True, autoincrement=False, _no_inheritance=False):
-        """
-        :param primary_key: Индикатор, означающий, что данное поле является ключом
-        :param not_null: Индикатор, означающий, что данное поле не может равнятся нулю
-        :param autoincrement: Индикатор, означающий, что поле будет инкрементироваться
-        :param _no_inheritance: Скрытое поле – индикатор, для того, чтобы не вносить данный класс в качестве наследуемого
-        """
+    @property
+    def objects(cls):
+        return cls._get_manager()
 
-        if not _no_inheritance:
-            self.__inheritance_number = OrmField.__number_of_inheritances + 1
-            OrmField.__number_of_inheritances += 1
-        else:
-            self.__inheritance_number = 0
+    def _get_manager(cls):
+        return cls.manager_class(a_model_class=cls, a_connection=cls._connection)
 
-        self.is_primary_key = primary_key
-        self.not_null = not_null
-        self.autoincrement = autoincrement
+    @staticmethod
+    def _create_table(a_connection, a_table_name, fields):
+        # noinspection PyProtectedMember
+        sql_fields = [instance._str_create(name) for name, instance in fields.items()]
+        sql_create_request = \
+            """
+            CREATE TABLE IF NOT EXISTS {} ({});
+            """.format(a_table_name, ','.join(sql_fields))
+        a_connection.execute(sql_create_request)
 
-    def get_stored_type(self, *args, **kwargs):
+    def __new__(mcs, name, bases, attrs):
+        if '__no_user_class__' in attrs:
+            return super().__new__(mcs, name, bases, attrs)
+
+        attrs['_table_name'] = name
+        attrs['_connection'] = sqlite3.connect(mcs.__dbname__)
+
+        field_attrs = {}
+        for key, val in attrs.items():
+            if not key.startswith('_') and isinstance(val, Field):
+                field_attrs[key] = val
+
+        has_primary_key = False
+        for field in field_attrs.values():
+            if field.is_primary_key():
+                has_primary_key = True
+                break
+
+        if not has_primary_key:
+            field_attrs['_primary_key_field'] = IntField(a_primary_key=True, a_autoincrement=True)
+            attrs['_primary_key_field'] = field_attrs['_primary_key_field']
+
+        mcs._create_table(attrs['_connection'], attrs['_table_name'], field_attrs)
+
+        attrs['fields'] = field_attrs
+
+        return super().__new__(mcs, name, bases, attrs)
+
+
+class Model(metaclass=MetaModel):
+    __no_user_class__ = ''
+
+
+class Field(object):
+    def __init__(self, a_primary_key=False, a_not_null=True, a_autoincrement=False):
+        self._primary_key = a_primary_key
+        self._not_null = a_not_null
+        self._autoincrement = a_autoincrement
+
+    def is_primary_key(self):
+        return self._primary_key
+
+    def get_type(self, *args, **kwargs):
         """
         Возвращает хранимый тип данных
         :rtype: Хранимый тип данных
@@ -42,207 +94,42 @@ class OrmField:
         """
         :rtype: Часть строки для запроса на создание SQLite
         """
+
         text = ''
-        if self.is_primary_key:
+        if self._primary_key:
             text += ' PRIMARY KEY '
-        if self.not_null and not self.autoincrement:
+        if self._not_null and not self._autoincrement:
             text += ' NOT NULL '
-        if self.autoincrement:
+        if self._autoincrement:
             text += ' AUTOINCREMENT '
         return text
 
-    @property
-    def inheritance_number(self):
-        return self.__inheritance_number
 
-
-class OrmText(OrmField):
-    def __init__(self, *args, **kwargs):
-        super(OrmText, self).__init__(autoincrement=False, *args, **kwargs)
-
-    def get_stored_type(self, *args, **kwargs):
-        return type(str)
-
-    def _str_create(self, column_name):
-        return '{} text '.format(column_name) + super()._str_create()
-
-
-class OrmInteger(OrmField):
-    def get_stored_type(self, *args, **kwargs):
-        return type(int)
+class IntField(Field):
+    def get_type(self, *args, **kwargs):
+        return int
 
     def _str_create(self, column_name):
         return '{} integer '.format(column_name) + super()._str_create()
 
 
-class OrmFloat(OrmField):
+class FloatField(Field):
     def __init__(self, *args, **kwargs):
-        super(OrmFloat, self).__init__(autoincrement=False, *args, **kwargs)
+        super(FloatField, self).__init__(a_autoincrement=False, *args, **kwargs)
 
-    def get_stored_type(self, *args, **kwargs):
+    def get_type(self, *args, **kwargs):
         return type(float)
 
     def _str_create(self, column_name):
         return '{} real '.format(column_name) + super()._str_create()
 
 
-#
-# ORM MODELS
-#
+class TextField(Field):
+    def __init__(self, *args, **kwargs):
+        super(TextField, self).__init__(a_autoincrement=False, *args, **kwargs)
 
-def check_connected(func):
-    def wrapper(*args):
-        if args[0].db_conn is None:
-            raise ConnectionError()
-        return func(*args)
+    def get_type(self, *args, **kwargs):
+        return type(str)
 
-    return wrapper
-
-
-class ListOrm(list):
-    def __init__(self, db_field_names, *args, **kwargs):
-        super(ListOrm, self).__init__(args[0])
-        self.db_field_names = db_field_names
-
-    def filter(self, **kwargs):
-        idx_fields = []
-        for field_name in kwargs.keys():
-            if field_name not in self.db_field_names:
-                raise ValueError()
-            idx_fields.append((self.db_field_names.index(field_name), kwargs[field_name]))
-
-        filter_data = []
-        for data in self.__iter__():
-            need_add = True
-            for field_idx, field_value in idx_fields:
-                if data[field_idx] != field_value:
-                    need_add = False
-                    break
-            if need_add:
-                filter_data.append(data)
-        return filter_data
-
-
-class OrmModel:
-    def __init__(self, db_file_name=None, db_table_name=None):
-        self.db_file_name = (type(self).__name__ + '.db') if db_file_name is None else db_file_name
-        self.db_table_name = type(self).__name__ if db_table_name is None else db_table_name
-        self.db_fields = self._get_all_table_fields()
-        self.db_field_names = [name for (name, _) in self.db_fields]
-        self.db_conn = self._create_connection()
-
-        self._create_table()
-
-    def __del__(self):
-        if self.db_conn is not None:
-            self.db_conn.close()
-
-    @check_connected
-    def send_request(self, request):
-        self.db_conn.execute(request)
-        self.db_conn.commit()
-
-    def add_entry(self, *args):
-        # TODO: Можно реализовать эту функцию иначе для более простого использования по типу:
-        # model.add_entry(pk=1, some_field_1='test', ...) – используя **kwargs
-
-        auto_id_field_name = '_id_field_{}_'.format(self.db_fields[0][1].inheritance_number)
-        has_auto_id_field = auto_id_field_name == self.db_fields[0][0]
-
-        if has_auto_id_field:
-            if len(args) != len(self.db_fields) - 1:
-                raise AttributeError()
-        else:
-            if len(args) != len(self.db_fields):
-                raise AttributeError()
-
-        start_idx = 1 if has_auto_id_field else 0
-        if self._type_matching_test(data=list(args), start_idx=start_idx):
-            raise TypeError()
-
-        sql_values = ''
-        for idx, a in enumerate(args):
-            if type(a) is str:
-                sql_values += '"{}"'.format(a)
-            else:
-                sql_values += str(a)
-            if idx != len(args) - 1:
-                sql_values += ', '
-
-        sql_add_request = \
-            """
-            INSERT INTO {} ({})
-            VALUES ({});
-            """.format(self.db_table_name, ','.join(self.db_field_names), sql_values)
-
-        self.send_request(sql_add_request)
-
-    @check_connected
-    def objects(self):
-        sql_request = \
-            """
-            SELECT * FROM {}
-            """.format(self.db_table_name)
-        return ListOrm(self.db_field_names, self.db_conn.execute(sql_request).fetchall())
-
-    def _type_matching_test(self, data: List, start_idx: int = 0):
-        if isinstance(data, list):
-            for idx, d in enumerate(data):
-                if type(d) != self.db_fields[idx + start_idx][1].get_stored_type():
-                    return False
-        return True
-
-    def _create_connection(self):
-        """
-        Создает соединение с базой данных.
-
-        :return: Соединение с базой данных в успешном случае, в ином None
-        """
-
-        try:
-            conn = sqlite3.connect(self.db_file_name)
-            return conn
-        except (Exception,):
-            return None
-
-    def _create_table(self):
-        """
-        Создает таблицу вместе со всеми полями класса
-        """
-
-        has_primary_key = False
-        for (name_field, instance) in self.db_fields:
-            if instance.is_primary_key:
-                has_primary_key = True
-                break
-
-        if not has_primary_key:
-            id_field = OrmInteger(primary_key=True, not_null=False, autoincrement=True)
-            id_field_name = '_id_field_{}_'.format(id_field.inheritance_number)
-
-            setattr(self, id_field_name, id_field)
-            self.db_fields.insert(0, (id_field_name, id_field))
-
-        sql_fields = [instance._str_create(name) for name, instance in self.db_fields]
-        sql_create_request = \
-            """
-            CREATE TABLE IF NOT EXISTS {} ({});
-            """.format(self.db_table_name, ','.join(sql_fields))
-
-        self.send_request(sql_create_request)
-
-    def _get_all_table_fields(self):
-        """
-        Собирает массив атрибутов данного класса
-
-        :return: Массив атрибутов вида (name_attr, instance)
-        """
-
-        attributes = [i for i in inspect.getmembers(self) if not inspect.ismethod(i[1])]
-
-        fields = []
-        for (name, instance) in attributes:
-            if issubclass(type(instance), OrmField):
-                fields.append((name, instance))
-
-        return fields
+    def _str_create(self, column_name):
+        return '{} text '.format(column_name) + super()._str_create()

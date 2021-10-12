@@ -1,21 +1,55 @@
-import os.path
 import sqlite3
+import enum
 
 
 class BaseManager(list):
+    class FilterType(str, enum.Enum):
+        EXACT = 'exact',
+        DEFAULT = ''
+
     def __init__(self, a_model_class, a_connection):
+        super(BaseManager, self).__init__()
+
         self._model_class = a_model_class
         self._connection = a_connection
         self._table_name = self._model_class.__name__
 
+    def add(self, *args):
+        for idx, arg in enumerate(args):
+            pass
+
     def filter(self, **kwargs):
-        where_str = ''
-        for field_name, field_value in kwargs.items():
-            if field_name not in self._model_class.fields or \
-                    type(field_value) != self._model_class.fields[field_name].get_type():
-                raise ValueError
-            else:
-                where_str += '{}={}'
+        query = ''
+
+        for fname, fvalue in kwargs.items():
+            field_name, filter_type = fname.split('__')
+            filter_type = self.__convert_to_filter_type(filter_type)
+            query = self.__add_to_filter_query(query, filter_type, field_name, fvalue)
+
+        _query = \
+            """
+            SELECT * FROM {}
+            """.format(self._table_name)
+        if len(query) > 0:
+            _query += '\nWHERE {}'.format(query)
+
+        return self._connection.execute(_query).fetchall()
+
+    def __convert_to_filter_type(self, a_str):
+        try:
+            _type = self.FilterType(a_str)
+        except (Exception,):
+            _type = self.FilterType.DEFAULT
+        return _type
+
+    def __add_to_filter_query(self, a_query, a_type, a_name, a_value):
+        if a_type == self.FilterType.DEFAULT:
+            return
+        elif a_type == self.FilterType.EXACT:
+            if len(a_query) > 0:
+                a_query += ' AND '
+            a_query += '{}={}'.format(a_name, a_value)
+        return a_query
 
 
 class MetaModel(type):

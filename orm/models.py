@@ -3,24 +3,65 @@ import enum
 
 
 class BaseManager(list):
+    """
+    Класс для работы с объетами базы данных, а именно:
+    - добавление новых объектов
+    - получение списка объектов, как всех, так и соотвествующих определенному условию
+    """
+
     class FilterType(str, enum.Enum):
+        """
+        Класс-перечисление суффиксов объектов фильтрации.
+        """
+
         EXACT = 'exact',
         DEFAULT = ''
 
-    def __init__(self, a_model_class, a_connection):
+    def __init__(self, a_model_class, a_connection, a_fields=None):
         super(BaseManager, self).__init__()
 
         self._model_class = a_model_class
         self._connection = a_connection
         self._table_name = self._model_class.__name__
 
-    def add(self, *args):
-        for idx, arg in enumerate(args):
-            pass
+    def add(self, **kwargs):
+        """
+        Функция добавления нового объекта в таблицу.
+
+        :param kwargs: параметры объекта.
+        """
+
+        # Функция форматирования значений объекта, добавляемого в таблицу
+        def _format_values(val):
+            if type(val) is str:
+                return '"{}"'.format(val)
+            else:
+                return str(val)
+
+        query = \
+            """
+            INSERT INTO {} ({})
+            VALUES ({});
+            """.format(
+                self._table_name,
+                ','.join(kwargs.keys()),
+                ','.join(map(_format_values, kwargs.values()))
+            )
+        self._connection.execute(query)
+        self._connection.commit()
 
     def filter(self, **kwargs):
+        """
+        Функция получения объектов из таблицы.
+        Также можно передать условия фильтрации для объектов.
+
+        :param kwargs: условия фильтрации объектов.
+        :return: список объектов, соответствующие условию.
+        """
+
         query = ''
 
+        # Обрабатываем условия, которые передали
         for fname, fvalue in kwargs.items():
             field_name, filter_type = fname.split('__')
             filter_type = self.__convert_to_filter_type(filter_type)
@@ -53,6 +94,13 @@ class BaseManager(list):
 
 
 class MetaModel(type):
+    """
+    Метакласс, осуществляющий промежуточные действия перед работой с таблицей, а именно:
+    - созданием базы данных, если она не создана,
+    - создание таблицы в базе данных, если она не создана,
+    - добавление первичного ключа в таблицу, если он не определен.
+    """
+
     __dbname__ = 'Database.db'
 
     manager_class = BaseManager
@@ -71,7 +119,7 @@ class MetaModel(type):
         sql_create_request = \
             """
             CREATE TABLE IF NOT EXISTS {} ({});
-            """.format(a_table_name, ','.join(sql_fields))
+            """.format(a_table_name, ', '.join(sql_fields))
         a_connection.execute(sql_create_request)
 
     def __new__(mcs, name, bases, attrs):
@@ -93,8 +141,11 @@ class MetaModel(type):
                 break
 
         if not has_primary_key:
-            field_attrs['_primary_key_field'] = IntField(a_primary_key=True, a_autoincrement=True)
-            attrs['_primary_key_field'] = field_attrs['_primary_key_field']
+            field_attrs = {
+                '_id_field_': IntField(a_primary_key=True, a_autoincrement=True),
+                **field_attrs,
+            }
+            attrs['_id_field_'] = field_attrs['_id_field_']
 
         mcs._create_table(attrs['_connection'], attrs['_table_name'], field_attrs)
 
@@ -112,6 +163,9 @@ class Field(object):
         self._primary_key = a_primary_key
         self._not_null = a_not_null
         self._autoincrement = a_autoincrement
+
+        if not self._primary_key and self._autoincrement:
+            raise AttributeError('A field cannot be auto-incremented without being a primary key.')
 
     def is_primary_key(self):
         return self._primary_key
@@ -131,11 +185,11 @@ class Field(object):
 
         text = ''
         if self._primary_key:
-            text += ' PRIMARY KEY '
+            text += 'PRIMARY KEY '
         if self._not_null and not self._autoincrement:
-            text += ' NOT NULL '
+            text += 'NOT NULL '
         if self._autoincrement:
-            text += ' AUTOINCREMENT '
+            text += 'AUTOINCREMENT '
         return text
 
 

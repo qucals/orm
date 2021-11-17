@@ -1,3 +1,4 @@
+import enum
 import os.path
 import sqlite3
 
@@ -10,6 +11,10 @@ DEFAULT_DATABASE_NAME = 'database.db'
 
 
 class BaseObjectsManager:
+    class FilterSuffixType(str, enum.Enum):
+        EXACT = 'exact'
+        DEFAULT = ''
+
     def __init__(self, a_database_file, a_table_name, a_attrs):
         self._database_file = a_database_file
         self._table_name = a_table_name
@@ -24,14 +29,46 @@ class BaseObjectsManager:
             query += f'{name}'
             if idx + 1 != len(self._attrs):
                 query += ', '
-        query += f') VALUES {self._format_query_values(args)};'
+        query += f') VALUES {self._format_query_values(args)}'
 
         with sqlite3.connect(self._database_file) as connection:
             connection.execute(query)
             connection.commit()
 
     def filter(self, **kwargs):
-        pass
+        filter_part_query = ''
+
+        for name, value in kwargs.items():
+            field_name, filter_type = name.split('__')
+            filter_type = self._convert_to_filter_type(filter_type)
+            filter_part_query = self._add_to_filter_query(filter_part_query, filter_type, field_name, value)
+
+        query = f'SELECT * FROM {self._table_name}'
+
+        if len(filter_part_query) > 0:
+            query += f' WHERE {filter_part_query}'
+
+        with sqlite3.connect(self._database_file) as connection:
+            cursor = connection.execute(query)
+            return cursor.fetchall()
+
+    def _add_to_filter_query(self, a_query, a_type, a_name, a_value):
+        if a_type == self.FilterSuffixType.DEFAULT:
+            return
+
+        if len(a_query) > 0:
+            a_query += ' AND '
+
+        if a_type == self.FilterSuffixType.EXACT:
+            a_query += f'{a_name}="{a_value}"'
+
+        return a_query
+
+    def _convert_to_filter_type(self, a_str):
+        try:
+            return self.FilterSuffixType(a_str)
+        except (Exception,):
+            return self.FilterSuffixType.DEFAULT
 
     def _format_query_values(self, args):
         query_values = ''
@@ -50,6 +87,7 @@ class BaseObjectsManager:
         with sqlite3.connect(self._database_file) as connection:
             cursor = connection.execute(f'SELECT COUNT(*) FROM {self._table_name}')
             return cursor.fetchone()[0]
+
 
 class MetaModel(type):
     objects_manager_class = BaseObjectsManager
@@ -80,7 +118,7 @@ class MetaModel(type):
                 part_attrs_query += f'\n{name} {inst.get_query_information()}'
                 if idx + 1 != len(a_attrs):
                     part_attrs_query += ','
-            query = f'CREATE TABLE IF NOT EXISTS {a_table_name}({part_attrs_query});'
+            query = f'CREATE TABLE IF NOT EXISTS {a_table_name}({part_attrs_query})'
 
             connection.execute(query)
             connection.commit()
@@ -157,6 +195,7 @@ class IntField(INumericalField):
 
     def get_stored_type(self):
         return int
+
 
 class FloatField(INumericalField):
     def get_type_in_sql_format(self):

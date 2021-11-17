@@ -1,11 +1,9 @@
 import os.path
 import sqlite3
 import unittest
-from typing import Any
 
 from orm import models
-from orm.exceptions import IncorrectDatabaseFileName, DatabaseCreationError
-from orm.models import MetaModel
+from orm.exceptions import IncorrectDatabaseFileName
 
 
 class TestModel(unittest.TestCase):
@@ -13,19 +11,20 @@ class TestModel(unittest.TestCase):
         if os.path.exists('test_database.db'):
             os.remove('test_database.db')
 
-    @staticmethod
-    def create_database(a_database_file: Any = 'test_database.db'):
-        class Table(models.Model):
-            _database_file = a_database_file
-        return Table
-
     def test_database_creates_after_definition(self):
         """
         Тест: база данных создается после ее определения.
         """
 
-        Table = self.create_database()
-        self.assertTrue(os.path.exists(Table._database_file))
+        class TestTable(models.Model):
+            _database_file = 'test_database.db'
+
+        self.assertTrue(os.path.exists(TestTable._database_file))
+
+        with sqlite3.connect(TestTable._database_file) as connection:
+            cursor = connection.execute(
+                f'SELECT name FROM sqlite_master WHERE type="table" AND name="{TestTable._table_name}"')
+            self.assertEqual(1, len(cursor.fetchall()))
 
     def test_raise_incorrect_database_file_name(self):
         """
@@ -33,19 +32,8 @@ class TestModel(unittest.TestCase):
         """
 
         with self.assertRaises(IncorrectDatabaseFileName):
-            self.create_database(a_database_file=None)
-
-    def test_create_table(self):
-        """
-        Тест: таблица в базе данных создается
-        """
-
-        Table = self.create_database()
-
-        with sqlite3.connect(Table._database_file) as connection:
-            cursor = connection.execute(
-                f'SELECT name FROM sqlite_master WHERE type="table" AND name="{Table._table_name}"')
-            self.assertEqual(1, len(cursor.fetchall()))
+            class TestTable(models.Model):
+                _database_file = None
 
 
 if __name__ == '__main__':

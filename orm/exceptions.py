@@ -1,3 +1,8 @@
+class IncompatibleProperty(Exception):
+    """Вызывается при задании несовместимых свойств для поля таблицы"""
+    pass
+
+
 class ArgumentNotFound(Exception):
     """Вызывается, когда аргумент не находится в списке полей таблицы"""
     pass

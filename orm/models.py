@@ -6,7 +6,7 @@ from abc import ABC
 from sqlite3 import Error
 
 from orm.exceptions import DatabaseCreationError, \
-    IncorrectDatabaseFileName, IncorrectCountOfArguments, InvalidArgumentType, ArgumentNotFound
+    IncorrectDatabaseFileName, IncorrectCountOfArguments, InvalidArgumentType, ArgumentNotFound, IncompatibleProperty
 
 DEFAULT_DATABASE_NAME = 'database.db'
 
@@ -140,7 +140,7 @@ class MetaModel(type):
 
             has_primary_key = False
             for value in attrs.values():
-                if isinstance(value, INumericalField):
+                if isinstance(value, IIncrementalField):
                     if value.primary_key:
                         has_primary_key = True
                         break
@@ -156,7 +156,8 @@ class MetaModel(type):
 
 class Model(metaclass=MetaModel):
     __no_user_class__ = True
-    _database_file = 'database.db'
+    _database_file = DEFAULT_DATABASE_NAME
+    _table_name = ''
 
 
 class IField(ABC):
@@ -183,10 +184,13 @@ class IField(ABC):
         return self._not_null
 
 
-class INumericalField(IField, ABC):
+class IIncrementalField(IField, ABC):
     def __init__(self, a_primary_key=False, a_not_null=False, a_autoincrement=False):
         super().__init__(a_primary_key=a_primary_key, a_not_null=a_not_null)
         self._autoincrement = a_autoincrement
+
+        if self.not_null and self.autoincrement:
+            raise IncompatibleProperty
 
     def get_query_information(self):
         return f'{super().get_query_information()}{"AUTOINCREMENT " if self.autoincrement else ""}'
@@ -196,7 +200,7 @@ class INumericalField(IField, ABC):
         return self._autoincrement
 
 
-class IntField(INumericalField):
+class IntField(IIncrementalField):
     def get_type_in_sql_format(self):
         return 'INTEGER'
 
@@ -204,7 +208,7 @@ class IntField(INumericalField):
         return int
 
 
-class FloatField(INumericalField):
+class FloatField(IField):
     def get_type_in_sql_format(self):
         return 'FLOAT'
 

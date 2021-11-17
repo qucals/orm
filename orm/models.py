@@ -1,17 +1,66 @@
-import abc
 import os.path
 import sqlite3
 
-from abc import ABC
-
 from sqlite3 import Error
 
-from orm.exceptions import DatabaseCreationError, IncorrectDatabaseFileName
+from orm.exceptions import DatabaseCreationError, \
+    IncorrectDatabaseFileName, IncorrectCountOfArguments, InvalidArgumentType
 
 DEFAULT_DATABASE_NAME = 'database.db'
 
 
+class BaseObjectsManager:
+    def __init__(self, a_database_file, a_table_name, a_attrs):
+        self._database_file = a_database_file
+        self._table_name = a_table_name
+        self._attrs = a_attrs
+
+    def add(self, *args):
+        if len(args) != len(self._attrs):
+            raise IncorrectCountOfArguments
+
+        query = f'INSERT INTO {self._table_name}('
+        for idx, name in enumerate(self._attrs):
+            query += f'{name}'
+            if idx + 1 != len(self._attrs):
+                query += ', '
+        query += f') VALUES {self._format_query_values(args)};'
+
+        with sqlite3.connect(self._database_file) as connection:
+            connection.execute(query)
+            connection.commit()
+
+    def filter(self, **kwargs):
+        pass
+
+    def _format_query_values(self, args):
+        query_values = ''
+        values = list(zip(args, self._attrs.values()))
+
+        for idx, (arg, inst) in enumerate(values):
+            if type(arg) != inst.get_stored_type():
+                raise InvalidArgumentType
+            else:
+                query_values += f'"{arg}"'
+                if idx + 1 != len(values):
+                    query_values += ', '
+        return f'({query_values})'
+
+    def __len__(self):
+        with sqlite3.connect(self._database_file) as connection:
+            cursor = connection.execute(f'SELECT COUNT(*) FROM {self._table_name}')
+            return cursor.fetchone()[0]
+
 class MetaModel(type):
+    objects_manager_class = BaseObjectsManager
+
+    @property
+    def objects(cls):
+        return cls._get_objects_manager()
+
+    def _get_objects_manager(cls):
+        return cls.objects_manager_class(cls._database_file, cls._table_name, cls._table_fields)
+
     @staticmethod
     def _create_database(a_database_file):
         if type(a_database_file) is not str:
@@ -42,6 +91,8 @@ class MetaModel(type):
                 attrs['_database_file'] = DEFAULT_DATABASE_NAME
             attrs['_table_name'] = name
 
+            attrs['_table_fields'] = {attr: inst for attr, inst in attrs.items() if isinstance(inst, IField)}
+
             has_primary_key = False
             for value in attrs.values():
                 if isinstance(value, INumericalField):
@@ -53,8 +104,7 @@ class MetaModel(type):
                 attrs['_id_field'] = IntField(a_primary_key=True, a_not_null=False, a_autoincrement=True)
 
             mcs._create_database(attrs['_database_file'])
-            mcs._create_table(attrs['_database_file'],
-                              attrs['_table_name'],
+            mcs._create_table(attrs['_database_file'], attrs['_table_name'],
                               {attr: inst for attr, inst in attrs.items() if isinstance(inst, IField)})
         return super().__new__(mcs, name, bases, attrs)
 
@@ -74,6 +124,9 @@ class IField:
                f'{"NOT NULL " if self.not_null else ""}'
 
     def get_type_in_sql_format(self):
+        raise NotImplementedError
+
+    def get_stored_type(self):
         raise NotImplementedError
 
     @property
@@ -102,12 +155,20 @@ class IntField(INumericalField):
     def get_type_in_sql_format(self):
         return 'INTEGER'
 
+    def get_stored_type(self):
+        return int
 
 class FloatField(INumericalField):
     def get_type_in_sql_format(self):
         return 'FLOAT'
 
+    def get_stored_type(self):
+        return float
+
 
 class TextField(IField):
     def get_type_in_sql_format(self):
         return 'TEXT'
+
+    def get_stored_type(self):
+        return str

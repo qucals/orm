@@ -4,7 +4,7 @@ import unittest
 
 from orm import models
 from orm.exceptions import IncorrectDatabaseFileName
-from orm.models import IntField, TextField
+from orm.models import IntField, TextField, FloatField
 
 models.DEFAULT_DATABASE_NAME = 'test_database.db'
 
@@ -65,15 +65,16 @@ class TestModel(unittest.TestCase):
         class TestTable(models.Model):
             id_column = IntField(a_primary_key=True)
             text_column = TextField()
+            float_column = FloatField()
 
-        TestTable.objects.add(1, 'text')
-        TestTable.objects.add(2, 'another_text_123_  ')
+        TestTable.objects.add(1, 'text', 3.2)
+        TestTable.objects.add(2, 'another_text_123_  ', 4.2)
 
-        expected_first = [(1, 'text')]
+        expected_first = [(1, 'text', 3.2)]
         extracted_first = TestTable.objects.filter(id_column__exact=1)
         self.assertEqual(expected_first, extracted_first)
 
-        expected_second = [(2, 'another_text_123_  ')]
+        expected_second = [(2, 'another_text_123_  ', 4.2)]
         extracted_second = TestTable.objects.filter(text_column__exact='another_text_123_  ')
         self.assertEqual(expected_second, extracted_second)
 
@@ -84,6 +85,10 @@ class TestModel(unittest.TestCase):
         expected_fourth = []
         extracted_fourth = TestTable.objects.filter(id_column__exact=3)
         self.assertEqual(expected_fourth, extracted_fourth)
+
+        expected_fifth = [(1, 'text', 3.2)]
+        extracted_fifth = TestTable.objects.filter(text_column__exact='text', float_column__exact=3.2)
+        self.assertEqual(expected_first, extracted_fifth)
 
 
 if __name__ == '__main__':

@@ -1,14 +1,10 @@
 from orm import models
+from orm.models import IntField, FloatField, TextField
 
 
-class TModel(models.Model):
-    pass
+class SomeTable(models.Model):
+    pk = IntField(a_primary_key=True)
+    some_field_1 = TextField()
+    some_field_2 = IntField()
+    some_field_3 = FloatField()
 
-
-# class CustomTable(Model):
-#     pk = IntField(a_primary_key=True)
-#     float_field = FloatField()
-#     text_field = TextField()
-
-if __name__ == '__main__':
-    pass

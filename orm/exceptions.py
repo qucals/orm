@@ -1,3 +1,8 @@
+class ArgumentNotFound(Exception):
+    """Вызывается, когда аргумент не находится в списке полей таблицы"""
+    pass
+
+
 class InvalidArgumentType(Exception):
     """Вызывается при несооветствии типов аргументов с типами полей таблицы"""
     pass

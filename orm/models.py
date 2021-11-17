@@ -1,11 +1,12 @@
 import enum
 import os.path
 import sqlite3
+from abc import ABC
 
 from sqlite3 import Error
 
 from orm.exceptions import DatabaseCreationError, \
-    IncorrectDatabaseFileName, IncorrectCountOfArguments, InvalidArgumentType
+    IncorrectDatabaseFileName, IncorrectCountOfArguments, InvalidArgumentType, ArgumentNotFound
 
 DEFAULT_DATABASE_NAME = 'database.db'
 
@@ -40,6 +41,12 @@ class BaseObjectsManager:
 
         for name, value in kwargs.items():
             field_name, filter_type = name.split('__')
+
+            if field_name not in self._attrs:
+                raise ArgumentNotFound
+            elif type(value) != self._attrs[field_name].get_stored_type():
+                raise InvalidArgumentType
+
             filter_type = self._convert_to_filter_type(filter_type)
             filter_part_query = self._add_to_filter_query(filter_part_query, filter_type, field_name, value)
 
@@ -152,7 +159,7 @@ class Model(metaclass=MetaModel):
     _database_file = 'database.db'
 
 
-class IField:
+class IField(ABC):
     def __init__(self, a_primary_key=False, a_not_null=False):
         self._primary_key = a_primary_key
         self._not_null = a_not_null
@@ -176,7 +183,7 @@ class IField:
         return self._not_null
 
 
-class INumericalField(IField):
+class INumericalField(IField, ABC):
     def __init__(self, a_primary_key=False, a_not_null=False, a_autoincrement=False):
         super().__init__(a_primary_key=a_primary_key, a_not_null=a_not_null)
         self._autoincrement = a_autoincrement

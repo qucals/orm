@@ -69,13 +69,21 @@ class TestModel(unittest.TestCase):
         TestTable.objects.add(1, 'text')
         TestTable.objects.add(2, 'another_text')
 
-        extract_first = TestTable.objects.filter(id_column__exact=1)
         expected_first = [1, 'text']
-        self.assertEqual(expected_first, extract_first)
+        extracted_first = TestTable.objects.filter(id_column__exact=1)
+        self.assertEqual(expected_first, extracted_first)
 
-        extract_second = TestTable.objects.filter(text_column__exact='another_text')
         expected_second = [2, 'another_text']
-        self.assertEqual(expected_second, extract_second)
+        extracted_second = TestTable.objects.filter(text_column__exact='another_text')
+        self.assertEqual(expected_second, extracted_second)
+
+        expected_third = [expected_first, extracted_second]
+        extracted_third = TestTable.objects.filter()
+        self.assertEqual(expected_third, extracted_third)
+
+        expected_fourth = []
+        extracted_fourth = TestTable.objects.filter(id_column__exact=3)
+        self.assertEqual(expected_fourth, extracted_fourth)
 
 
 if __name__ == '__main__':

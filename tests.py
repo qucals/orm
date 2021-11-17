@@ -54,6 +54,29 @@ class TestModel(unittest.TestCase):
         TestTable.objects.add(1, 'text')
         self.assertEqual(1, len(TestTable.objects))
 
+        TestTable.objects.add(2, 'another_text')
+        self.assertEqual(2, len(TestTable.objects))
+
+    def test_extract_data_from_table_by_filter(self):
+        """
+        Тест: получение данных из таблицы с помощью фильтрации
+        """
+
+        class TestTable(models.Model):
+            id_column = IntField(a_primary_key=True)
+            text_column = TextField()
+
+        TestTable.objects.add(1, 'text')
+        TestTable.objects.add(2, 'another_text')
+
+        extract_first = TestTable.objects.filter(id_column__exact=1)
+        expected_first = [1, 'text']
+        self.assertEqual(expected_first, extract_first)
+
+        extract_second = TestTable.objects.filter(text_column__exact='another_text')
+        expected_second = [2, 'another_text']
+        self.assertEqual(expected_second, extract_second)
+
 
 if __name__ == '__main__':
     unittest.main()
